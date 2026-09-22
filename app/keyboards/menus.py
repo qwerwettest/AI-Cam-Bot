@@ -87,6 +87,16 @@ def result_actions_keyboard(free_rooms: list[dict[str, Any]]) -> InlineKeyboardM
     return builder.as_markup()
 
 
+def hold_actions_keyboard(hold_id: int) -> InlineKeyboardMarkup:
+    """Кнопки под найденным кабинетом: кабинет удержан, но ещё не забронирован."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Подтвердить бронь", callback_data=f"holdok:{hold_id}")
+    builder.button(text="🔄 Другой кабинет", callback_data=f"holdnext:{hold_id}")
+    builder.button(text="❌ Отказаться", callback_data=f"holdno:{hold_id}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 def set_default_location_keyboard(locations: list[LocationOption]) -> InlineKeyboardMarkup:
     return location_keyboard(locations, callback_prefix="setdef")
 

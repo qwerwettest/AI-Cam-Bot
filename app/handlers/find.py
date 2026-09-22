@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -15,6 +15,7 @@ from app.keyboards.menus import (
     duration_keyboard,
     floor_keyboard,
     location_keyboard,
+    hold_actions_keyboard,
     result_actions_keyboard,
 )
 from app.models import FindRoomQuery
@@ -51,7 +52,7 @@ async def cmd_find(message: Message, state: FSMContext, settings: Settings, user
         if location:
             hint = f"\nТекущая локация по умолчанию: <b>{location.name}</b> ({location.id})."
     await message.answer(
-        "Шаг 1/5. Выберите локацию поиска кабинета." + hint,
+        "Шаг 1/3. Выберите корпус." + hint,
         reply_markup=location_keyboard(settings.locations_list),
     )
 
@@ -72,13 +73,20 @@ async def _ask_floor(message: Message, state: FSMContext, floors: list[int]) -> 
 
 
 
+#: Шаг сетки времени в минутах.
+TIME_SLOT_MINUTES = 15
+
+
 def _get_auto_time() -> str:
-    """Round current time up to the next full hour."""
+    """Текущее время, округлённое ВНИЗ до сетки в 15 минут.
+
+    Раньше округляли вверх до целого часа: в 10:05 ближайшим слотом было
+    11:00, и кабинет нельзя было занять прямо сейчас. Теперь 10:05 даёт
+    10:00, 10:20 — 10:15 и так далее.
+    """
     now = datetime.now()
-    if now.minute == 0 and now.second == 0:
-        return now.strftime("%H:%M")
-    next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
-    return next_hour.strftime("%H:%M")
+    slot_minute = (now.minute // TIME_SLOT_MINUTES) * TIME_SLOT_MINUTES
+    return now.replace(minute=slot_minute, second=0, microsecond=0).strftime("%H:%M")
 
 
 async def _ask_duration(message: Message, state: FSMContext, settings: Settings) -> None:
@@ -220,7 +228,101 @@ async def _execute_search(
 
     free_rooms = extract_free_rooms(response)
     text = format_search_result(response)
-    await message.answer(text, reply_markup=result_actions_keyboard(free_rooms))
+
+    # Кабинет найден и удержан, но бронью станет только после подтверждения.
+    hold_id = free_rooms[0].get("hold_id") if free_rooms else None
+    if hold_id is not None:
+        await message.answer(text, reply_markup=hold_actions_keyboard(int(hold_id)))
+    else:
+        await message.answer(text, reply_markup=result_actions_keyboard(free_rooms))
+
+
+@router.callback_query(F.data.startswith("holdok:"))
+async def callback_confirm_hold(callback: CallbackQuery, java_client: JavaClient) -> None:
+    raw = callback.data.split(":", maxsplit=1)[1]
+    if not raw.isdigit():
+        await callback.answer("Некорректный резерв.", show_alert=True)
+        return
+
+    try:
+        await java_client.confirm_booking(int(raw), callback.from_user.id)
+    except JavaClientError as exc:
+        if exc.status_code == 404:
+            await callback.answer(
+                "Резерв истёк или уже обработан. Запустите /find заново.", show_alert=True
+            )
+        else:
+            logger.error("hold_confirm_failed: %s", exc)
+            await callback.answer("Не удалось подтвердить. Попробуйте позже.", show_alert=True)
+        return
+
+    await callback.answer("Забронировано.")
+    if callback.message:
+        await callback.message.edit_text(
+            callback.message.html_text + "\n\n✅ <b>Бронь подтверждена.</b> Посмотреть все — /my"
+        )
+
+
+@router.callback_query(F.data.startswith("holdno:"))
+async def callback_release_hold(callback: CallbackQuery, java_client: JavaClient) -> None:
+    raw = callback.data.split(":", maxsplit=1)[1]
+    if not raw.isdigit():
+        await callback.answer("Некорректный резерв.", show_alert=True)
+        return
+
+    try:
+        await java_client.cancel_booking(int(raw), callback.from_user.id)
+    except JavaClientError as exc:
+        if exc.status_code != 404:
+            logger.error("hold_release_failed: %s", exc)
+
+    await callback.answer("Кабинет освобождён.")
+    if callback.message:
+        await callback.message.edit_text(
+            callback.message.html_text + "\n\n❌ <b>Вы отказались.</b> Новый поиск — /find"
+        )
+
+
+@router.callback_query(F.data.startswith("holdnext:"))
+async def callback_next_room(
+    callback: CallbackQuery,
+    java_client: JavaClient,
+    user_storage: UserStorage,
+) -> None:
+    """Отказ от текущего кабинета и повтор поиска: следующий свободный."""
+    raw = callback.data.split(":", maxsplit=1)[1]
+
+    # Сначала освобождаем текущий, иначе он же и найдётся снова.
+    if raw.isdigit():
+        try:
+            await java_client.cancel_booking(int(raw), callback.from_user.id)
+        except JavaClientError:
+            pass
+
+    payload = await user_storage.get_last_request(callback.from_user.id)
+    if payload is None:
+        await callback.answer("Нет предыдущего запроса. Запустите /find.", show_alert=True)
+        return
+
+    await callback.answer("Ищу другой кабинет...")
+    try:
+        response = await java_client.bridge(payload=payload)
+    except JavaClientError as exc:
+        logger.error("next_room_failed: %s", exc)
+        if callback.message:
+            await callback.message.answer("Сервис поиска недоступен. Попробуйте позже.")
+        return
+
+    await user_storage.save_last_response(callback.from_user.id, response)
+    free_rooms = extract_free_rooms(response)
+    text = format_search_result(response)
+    hold_id = free_rooms[0].get("hold_id") if free_rooms else None
+
+    if callback.message:
+        if hold_id is not None:
+            await callback.message.answer(text, reply_markup=hold_actions_keyboard(int(hold_id)))
+        else:
+            await callback.message.answer(text)
 
 
 @router.callback_query(F.data == "refresh:last")

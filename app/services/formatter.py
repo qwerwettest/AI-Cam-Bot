@@ -70,12 +70,14 @@ def _room_line(room: dict[str, Any], index: int) -> str:
     if place:
         lines.append("📍 " + escape(" · ".join(str(p) for p in place)))
 
-    # Время брони — главное, чего не хватало в ответе.
+    # Кабинет удержан, но бронью станет только после подтверждения,
+    # поэтому формулировка зависит от наличия hold_id.
     if booking_start and booking_end:
-        booked = f"{escape(str(booking_start))}–{escape(str(booking_end))}"
+        when = f"{escape(str(booking_start))}–{escape(str(booking_end))}"
         if duration:
-            booked += f" ({duration} мин)"
-        lines.append(f"🕒 Забронирован: <b>{booked}</b>")
+            when += f" ({duration} мин)"
+        label = "Время" if room.get("hold_id") is not None else "Забронирован"
+        lines.append(f"🕒 {label}: <b>{when}</b>")
 
     if category:
         lines.append(f"🏷 {escape(str(category))}")
@@ -98,6 +100,10 @@ def _room_line(room: dict[str, Any], index: int) -> str:
         chunks.append(f"код доступа: <code>{escape(str(access_code))}</code>")
 
     lines.append(" | ".join(chunks))
+
+    if room.get("hold_id") is not None:
+        lines.append("<i>Кабинет удержан за вами. Подтвердите бронь ниже.</i>")
+
     return "\n".join(lines)
 
 

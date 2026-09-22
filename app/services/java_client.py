@@ -172,6 +172,11 @@ class JavaClient:
         path = f"{self.settings.bookings_path}?telegram_user_id={telegram_user_id}"
         return await self._request("GET", path)
 
+    async def confirm_booking(self, hold_id: int, telegram_user_id: int) -> dict[str, Any]:
+        """Подтверждение резерва: кабинет становится бронью."""
+        path = f"{self.settings.bookings_path}/{hold_id}/confirm?telegram_user_id={telegram_user_id}"
+        return await self._request("POST", path)
+
     async def cancel_booking(self, booking_id: int, telegram_user_id: int) -> dict[str, Any]:
         """Отмена брони. Java проверяет владельца и вернёт 404 на чужую."""
         path = f"{self.settings.bookings_path}/{booking_id}?telegram_user_id={telegram_user_id}"
