@@ -55,11 +55,38 @@ def _room_line(room: dict[str, Any], index: int) -> str:
     camera_status = room.get("camera_status")
     access_code = room.get("access_code") or room.get("key") or room.get("code")
 
-    chunks = [f"{index}. <b>{name}</b>"]
+    booking_start = room.get("booking_start")
+    booking_end = room.get("booking_end")
+    duration = room.get("duration_minutes")
+    category = room.get("category")
+
+    lines = [f"{index}. <b>{name}</b>"]
+
+    place = []
     if location:
-        chunks.append(f"локация: {location}")
+        place.append(location)
     if floor is not None:
-        chunks.append(f"этаж: {floor}")
+        place.append(f"{floor} этаж")
+    if place:
+        lines.append("📍 " + escape(" · ".join(str(p) for p in place)))
+
+    # Время брони — главное, чего не хватало в ответе.
+    if booking_start and booking_end:
+        booked = f"{escape(str(booking_start))}–{escape(str(booking_end))}"
+        if duration:
+            booked += f" ({duration} мин)"
+        lines.append(f"🕒 Забронирован: <b>{booked}</b>")
+
+    if category:
+        lines.append(f"🏷 {escape(str(category))}")
+
+    # Предупреждения, если пришлось отступить от запроса.
+    if room.get("corpus_matched") is False:
+        lines.append("⚠️ В выбранном корпусе свободных не было — это другой корпус")
+    if room.get("floor_matched") is False:
+        lines.append("⚠️ На выбранном этаже свободных не было — это другой этаж")
+
+    chunks = []
     if capacity is not None:
         chunks.append(f"вместимость: {capacity}")
     chunks.append(f"расписание: {_bool_label(schedule_free)}")
@@ -69,7 +96,9 @@ def _room_line(room: dict[str, Any], index: int) -> str:
         chunks.append(f"камера занятость: {_bool_label(camera_free)}")
     if access_code:
         chunks.append(f"код доступа: <code>{escape(str(access_code))}</code>")
-    return " | ".join(chunks)
+
+    lines.append(" | ".join(chunks))
+    return "\n".join(lines)
 
 
 def format_search_result(payload: dict[str, Any]) -> str:

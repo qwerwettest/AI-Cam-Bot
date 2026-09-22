@@ -9,7 +9,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, ErrorEvent
 
 from app.config import get_settings
-from app.handlers import admin, common, find
+from app.handlers import admin, bookings, common, find
 from app.services.java_client import JavaClient
 from app.storage.user_storage import UserStorage
 from app.utils.logging import setup_logging
@@ -51,6 +51,7 @@ async def run_bot() -> None:
 
     dp.include_router(common.router)
     dp.include_router(find.router)
+    dp.include_router(bookings.router)
     dp.include_router(admin.router)
 
     @dp.error()

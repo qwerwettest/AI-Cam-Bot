@@ -34,6 +34,7 @@ def _parse_json_or_default(raw_value: Any, default: Any) -> Any:
 def _parse_api_paths(raw_value: Any) -> dict[str, str]:
     default_paths = {
         "bridge": "/api/bridge",
+        "bookings": "/api/bookings",
     }
     parsed = _parse_json_or_default(raw_value, default_paths)
     if not isinstance(parsed, dict):
@@ -137,6 +138,10 @@ class Settings(BaseSettings):
     @property
     def bridge_path(self) -> str:
         return self.java_api_paths["bridge"]
+
+    @property
+    def bookings_path(self) -> str:
+        return self.java_api_paths["bookings"]
 
     @property
     def duration_options(self) -> list[int]:

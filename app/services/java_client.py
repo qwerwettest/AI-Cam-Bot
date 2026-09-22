@@ -167,6 +167,16 @@ class JavaClient:
             return await self._request("POST", self.settings.bridge_path, payload=payload)
         return await self._request("GET", self.settings.bridge_path)
 
+    async def list_bookings(self, telegram_user_id: int) -> dict[str, Any]:
+        """Брони пользователя."""
+        path = f"{self.settings.bookings_path}?telegram_user_id={telegram_user_id}"
+        return await self._request("GET", path)
+
+    async def cancel_booking(self, booking_id: int, telegram_user_id: int) -> dict[str, Any]:
+        """Отмена брони. Java проверяет владельца и вернёт 404 на чужую."""
+        path = f"{self.settings.bookings_path}/{booking_id}?telegram_user_id={telegram_user_id}"
+        return await self._request("DELETE", path)
+
     async def close(self) -> None:
         await self._client.aclose()
 
